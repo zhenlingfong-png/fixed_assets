@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Fixed Asset Register</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+  <script src="config.js" onerror="window.__configMissing=true"></script>
+
+  <script defer src="auth.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-[#FAF9F6] text-[#333333] min-h-screen flex items-center justify-center px-4" x-data="loginPage" x-cloak>
+
+  <!-- Toasts -->
+  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="px-4 py-2 rounded border shadow-sm text-sm pointer-events-auto max-w-sm"
+           :class="{
+             'bg-green-50 text-green-800 border-green-200': t.type === 'positive',
+             'bg-red-50 text-red-800 border-red-200':       t.type === 'negative',
+             'bg-yellow-50 text-yellow-800 border-yellow-200': t.type === 'warning',
+             'bg-stone-50 text-stone-700 border-stone-200': t.type === 'info'
+           }"
+           x-text="t.message"></div>
+    </template>
+  </div>
+
+  <!-- Configuration error -->
+  <template x-if="configMissing">
+    <div class="bg-white border border-red-200 rounded p-6 max-w-md w-full">
+      <h2 class="text-lg font-medium text-red-700 mb-2">Configuration missing</h2>
+      <p class="text-sm text-stone-600">Copy <code>config.example.js</code> to <code>config.js</code> and fill in your Supabase URL and anon key.</p>
+    </div>
+  </template>
+
+  <!-- Login card -->
+  <div x-show="!configMissing" class="w-full max-w-md">
+
+    <!-- Brand -->
+    <div class="flex items-center justify-center gap-3 mb-8">
+      <img src="favicon.svg" alt="" class="w-10 h-10" />
+      <h1 class="font-serif-display text-3xl text-stone-800" style="font-weight: 600; letter-spacing: 0.5px;">
+        Fixed Asset Register
+      </h1>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white border border-stone-200 rounded p-8 shadow-sm">
+      <div class="section-banner">
+        <span class="text-lg" x-text="mode === 'signin' ? 'Sign In' : 'Create Account'"></span>
+      </div>
+
+      <form @submit.prevent="submit">
+        <label class="text-xs text-stone-500 mb-1 block">Email</label>
+        <input x-model="email" type="email" required autocomplete="email" autofocus
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <label class="text-xs text-stone-500 mb-1 block">Password</label>
+        <input x-model="password" type="password" required minlength="6"
+               :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <template x-if="error">
+          <div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4" x-text="error"></div>
+        </template>
+
+        <button type="submit" :disabled="loading"
+                class="w-full py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                x-text="loading ? 'Please wait…' : (mode === 'signin' ? 'Sign In' : 'Create Account')"></button>
+      </form>
+
+      <div class="mt-4 text-center text-sm text-stone-500">
+        <template x-if="mode === 'signin'">
+          <span>Don't have an account?
+            <button @click="toggleMode" class="text-[#7F0019] hover:underline">Sign up</button>
+          </span>
+        </template>
+        <template x-if="mode === 'signup'">
+          <span>Already have an account?
+            <button @click="toggleMode" class="text-[#7F0019] hover:underline">Sign in</button>
+          </span>
+        </template>
+      </div>
+    </div>
+
+    <p class="text-xs text-stone-400 text-center mt-6">
+      Sign in to manage your fixed assets. Each account sees only its own data.
+    </p>
+  </div>
+</body>
+</html>

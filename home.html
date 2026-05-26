@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fixed Asset Register</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase JS SDK v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- ExcelJS for year-end .xlsx generation -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+  <!-- SheetJS for parsing uploaded .xls / .xlsx -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Your Supabase credentials (copy config.example.js → config.js) -->
+  <script src="config.js" onerror="window.__configMissing=true"></script>
+
+  <!-- App data MUST register before Alpine starts — deferred scripts run in
+       document order, and Alpine.start() fires synchronously when its defer
+       script executes, so app.js needs to be parsed first. -->
+  <script defer src="app.js"></script>
+
+  <!-- Alpine.js (loaded AFTER app.js so the alpine:init listener is in place) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-[#FAF9F6] text-[#333333]" x-data="appState" x-cloak>
+
+  <!-- Toast notifications -->
+  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <template x-for="t in toasts" :key="t.id">
+      <div
+        class="px-4 py-2 rounded border shadow-sm text-sm pointer-events-auto max-w-sm"
+        :class="{
+          'bg-green-50 text-green-800 border-green-200': t.type === 'positive',
+          'bg-red-50 text-red-800 border-red-200':       t.type === 'negative',
+          'bg-yellow-50 text-yellow-800 border-yellow-200': t.type === 'warning',
+          'bg-stone-50 text-stone-700 border-stone-200': t.type === 'info'
+        }"
+        x-text="t.message"></div>
+    </template>
+  </div>
+
+  <!-- ===== Header ===== -->
+  <header class="bg-[#8b6854] text-white px-8 py-4 flex items-center justify-between shadow-none">
+    <div class="flex items-center gap-4">
+      <img src="favicon.svg" alt="" class="w-9 h-9" />
+      <h1 class="font-serif-display text-2xl leading-none" style="letter-spacing: 0.5px; font-weight: 600;">
+        Fixed Asset Register
+      </h1>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-white/80 text-sm hidden sm:inline" x-text="userEmail"></span>
+      <button @click="signOut()"
+        class="text-white border border-white/40 rounded px-4 py-1.5 text-sm hover:bg-white/10 transition-colors flex items-center gap-2"
+        style="font-weight: 500;">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        Sign Out
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== Config-missing warning ===== -->
+  <template x-if="configMissing">
+    <div class="max-w-3xl mx-auto mt-12 p-6 bg-white border border-red-200 rounded">
+      <h2 class="text-lg font-medium text-red-700 mb-2">Configuration missing</h2>
+      <p class="text-sm text-stone-600 mb-2">
+        <code>docs/config.js</code> not found. Copy <code>config.example.js</code> to
+        <code>config.js</code> and fill in your Supabase URL and anon key.
+      </p>
+    </div>
+  </template>
+
+  <!-- ===== Main container ===== -->
+  <main x-show="!configMissing" class="w-full max-w-5xl mx-auto mt-8 px-4 pb-16">
+
+    <!-- Tabs -->
+    <nav class="flex border-b border-stone-200">
+      <template x-for="t in tabs" :key="t.id">
+        <button
+          class="tab-btn flex-1"
+          :class="{ 'active': activeTab === t.id }"
+          @click="activeTab = t.id"
+          x-text="t.label">
+        </button>
+      </template>
+    </nav>
+
+    <!-- DASHBOARD -->
+    <section x-show="activeTab === 'dashboard'" class="mt-6">
+      <div class="flex items-center mb-6">
+        <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+        <h2 class="font-serif-display text-xl text-stone-800" style="font-weight: 600; letter-spacing: 0.3px;">Overview</h2>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <!-- Active assets count -->
+        <div class="bg-white border border-stone-200 rounded-sm p-5">
+          <div class="text-xs text-stone-500 uppercase tracking-wider mb-1">Active Assets</div>
+          <div class="text-3xl font-serif-display text-stone-800" style="font-weight: 600;" x-text="kpiActiveCount"></div>
+        </div>
+        <!-- Active value -->
+        <div class="bg-white border border-stone-200 rounded-sm p-5">
+          <div class="text-xs text-stone-500 uppercase tracking-wider mb-1">Active Value</div>
+          <div class="text-3xl font-serif-display text-stone-800" style="font-weight: 600;"
+               x-text="`RM ${kpiActiveValue.toLocaleString('en-US', {maximumFractionDigits: 0})}`"></div>
+        </div>
+        <!-- Disposed assets count -->
+        <div class="bg-white border border-stone-200 rounded-sm p-5">
+          <div class="text-xs text-stone-500 uppercase tracking-wider mb-1">Disposed Assets</div>
+          <div class="text-3xl font-serif-display text-stone-800" style="font-weight: 600;" x-text="kpiDisposedCount"></div>
+        </div>
+        <!-- Additions count + value -->
+        <div class="bg-white border border-stone-200 rounded-sm p-5">
+          <div class="text-xs text-stone-500 uppercase tracking-wider mb-1">Additions</div>
+          <div class="text-3xl font-serif-display text-stone-800" style="font-weight: 600;" x-text="kpiAdditionsCount"></div>
+          <div class="text-xs text-stone-400 mt-1"
+               x-text="`RM ${kpiAdditionsValue.toLocaleString('en-US', {maximumFractionDigits: 0})}`"></div>
+        </div>
+      </div>
+
+      <!-- Quick links -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <button @click="activeTab='addition'"
+                class="bg-white border border-stone-200 rounded-sm p-5 text-left hover:border-[#7F0019] transition-colors">
+          <div class="text-sm font-medium text-stone-800 mb-1">+ Add Asset</div>
+          <div class="text-xs text-stone-500">Record a new fixed asset or addition</div>
+        </button>
+        <button @click="activeTab='disposal'"
+                class="bg-white border border-stone-200 rounded-sm p-5 text-left hover:border-[#7F0019] transition-colors">
+          <div class="text-sm font-medium text-stone-800 mb-1">↓ Dispose</div>
+          <div class="text-xs text-stone-500">Write off an asset (full or partial)</div>
+        </button>
+        <button @click="activeTab='reports'"
+                class="bg-white border border-stone-200 rounded-sm p-5 text-left hover:border-[#7F0019] transition-colors">
+          <div class="text-sm font-medium text-stone-800 mb-1">↗ Reports</div>
+          <div class="text-xs text-stone-500">View list & generate year-end Excel</div>
+        </button>
+        <button @click="openImport()"
+                class="bg-white border border-stone-200 rounded-sm p-5 text-left hover:border-[#7F0019] transition-colors">
+          <div class="text-sm font-medium text-stone-800 mb-1">⇪ Import</div>
+          <div class="text-xs text-stone-500">Bulk import from an existing Excel register</div>
+        </button>
+      </div>
+    </section>
+
+    <!-- ADDITION -->
+    <section x-show="activeTab === 'addition'" class="mt-6">
+
+      <!-- =============== Card 1: NEW ASSET DETAILS =============== -->
+      <div class="bg-white border border-stone-200 rounded-sm p-8 max-w-2xl mx-auto">
+        <div class="section-banner">
+          <span class="text-lg">New Asset Details</span>
+        </div>
+
+        <input x-model="newAsset.name" type="text" placeholder="Asset Description"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <select x-model.number="newAsset.categoryId"
+                  class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option :value="null">— Category —</option>
+            <template x-for="c in cats" :key="c.id">
+              <option :value="c.id" x-text="c.name"></option>
+            </template>
+          </select>
+          <select x-model.number="newAsset.locationId"
+                  class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option :value="null">— Location —</option>
+            <template x-for="l in locs" :key="l.id">
+              <option :value="l.id" x-text="l.name"></option>
+            </template>
+          </select>
+        </div>
+
+        <input x-model="newAsset.locationDetail" type="text"
+               placeholder="Location Detail (e.g. Shelf B-3, Room 204)"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <div class="grid grid-cols-4 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Qty</label>
+            <input x-model.number="newAsset.qty" type="number" min="1" step="1"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div class="col-span-2">
+            <label class="text-xs text-stone-500">Unit Cost (RM)</label>
+            <input x-model.number="newAsset.unitCost" type="number" min="0" step="0.01"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Purchase Cost (RM)</label>
+            <input :value="newAssetTotal.toFixed(2)" type="text" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <select x-model.number="newAsset.depRate"
+                  class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option :value="null">— Depreciation Rate —</option>
+            <template x-for="r in rates" :key="r.id">
+              <option :value="Number(r.percentage)" x-text="`${r.percentage}%`"></option>
+            </template>
+          </select>
+          <select x-model="newAsset.status"
+                  class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option value="Active">Active</option>
+            <option value="Disposed">Disposed</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Year of Purchase</label>
+            <input :value="newAssetYear" type="number" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Date of Purchase</label>
+            <input x-model="newAsset.purchaseDate" type="date"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+        </div>
+
+        <div class="flex justify-end mb-4">
+          <button @click="syncDropdowns()" class="text-xs text-stone-400 hover:text-stone-700 tracking-wider">↻ Sync Options</button>
+        </div>
+
+        <input x-model="newAsset.remarks" type="text" placeholder="Remarks"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <button @click="saveNewAsset()" :disabled="newAssetSaving"
+                class="w-full py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                x-text="newAssetSaving ? 'Saving…' : 'Save Record'"></button>
+      </div>
+
+      <!-- =============== Card 2: ADD TO EXISTING ASSET =============== -->
+      <div class="bg-white border border-stone-200 rounded-sm p-8 max-w-2xl mx-auto mt-6">
+        <div class="section-banner">
+          <span class="text-lg">Add to Existing Asset</span>
+        </div>
+
+        <!-- Custom searchable dropdown (wraps long names) -->
+        <div x-data="{ open: false, search: '' }" @click.outside="open = false"
+             class="relative mb-4">
+          <button type="button" @click="open = !open"
+                  class="w-full text-left px-3 py-2 border border-stone-300 rounded text-sm bg-white flex justify-between items-start gap-2 min-h-[40px]">
+            <template x-if="newAddition.parentId">
+              <span class="flex-1 break-words text-stone-800"
+                    x-text="(activeAssets.find(a => a.id === newAddition.parentId)?.name || '') + ' (' + (activeAssets.find(a => a.id === newAddition.parentId)?.location || 'No location') + ')'"></span>
+            </template>
+            <template x-if="!newAddition.parentId">
+              <span class="flex-1 text-stone-400">— Select Parent Asset —</span>
+            </template>
+            <span class="text-stone-400 mt-0.5">▼</span>
+          </button>
+          <div x-show="open" x-transition.opacity
+               class="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-stone-200 rounded shadow-lg max-h-72 overflow-hidden flex flex-col">
+            <input x-model="search" type="text" placeholder="Search by name or location…"
+                   class="w-full px-3 py-2 border-b border-stone-200 text-sm focus:outline-none" />
+            <div class="overflow-y-auto flex-1">
+              <template x-for="a in activeAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase()))" :key="a.id">
+                <div @click="newAddition.parentId = a.id; onParentSelected(); open = false; search = ''"
+                     :class="newAddition.parentId === a.id ? 'bg-stone-100' : 'hover:bg-stone-50'"
+                     class="px-3 py-2 cursor-pointer text-sm border-b border-stone-100">
+                  <div class="text-stone-800 break-words" x-text="a.name"></div>
+                  <div class="text-xs text-stone-500 mt-0.5" x-text="a.location || 'No location'"></div>
+                </div>
+              </template>
+              <template x-if="activeAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase())).length === 0">
+                <div class="px-3 py-4 text-sm text-stone-400 text-center">No matches</div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <input :value="selectedParent?.category || ''" type="text" readonly placeholder="Category"
+                 class="px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          <input :value="selectedParent?.location || ''" type="text" readonly placeholder="Location"
+                 class="px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+        </div>
+
+        <div class="mb-4">
+          <label class="text-xs text-stone-500">Parent Current Cost (RM)</label>
+          <input :value="(selectedParent?.purchase_cost || 0).toFixed(2)" type="text" readonly
+                 class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+        </div>
+
+        <input x-model="newAddition.description" type="text"
+               placeholder='Addition Description (e.g. "Air-cond upgrade")'
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <div class="grid grid-cols-4 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Qty</label>
+            <input x-model.number="newAddition.qty" type="number" min="1" step="1"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div class="col-span-2">
+            <label class="text-xs text-stone-500">Unit Cost (RM)</label>
+            <input x-model.number="newAddition.unitCost" type="number" min="0" step="0.01"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Addition Cost (RM)</label>
+            <input :value="newAdditionTotal.toFixed(2)" type="text" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <select x-model.number="newAddition.depRate"
+                  class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option :value="null">— Depreciation Rate —</option>
+            <template x-for="r in rates" :key="r.id">
+              <option :value="Number(r.percentage)" x-text="`${r.percentage}%`"></option>
+            </template>
+          </select>
+          <div>
+            <label class="text-xs text-stone-500">Year of Purchase</label>
+            <input :value="newAdditionYear" type="number" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="text-xs text-stone-500">Date of Purchase</label>
+          <input x-model="newAddition.purchaseDate" type="date"
+                 class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+        </div>
+
+        <div class="flex justify-end mb-4">
+          <button @click="refreshAdditionLists()" class="text-xs text-stone-400 hover:text-stone-700 tracking-wider">↻ Refresh</button>
+        </div>
+
+        <input x-model="newAddition.remarks" type="text" placeholder="Remarks"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <button @click="saveNewAddition()" :disabled="additionSaving"
+                class="w-full py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                x-text="additionSaving ? 'Saving…' : 'Save Addition'"></button>
+      </div>
+
+    </section>
+
+    <!-- DISPOSAL -->
+    <section x-show="activeTab === 'disposal'" class="mt-6">
+      <div class="bg-white border border-stone-200 rounded-sm p-8 max-w-2xl mx-auto">
+        <div class="section-banner">
+          <span class="text-lg">Asset Disposal Details</span>
+        </div>
+
+        <!-- Custom searchable dropdown (wraps long names) -->
+        <div x-data="{ open: false, search: '' }" @click.outside="open = false"
+             class="relative mb-4">
+          <button type="button" @click="open = !open"
+                  class="w-full text-left px-3 py-2 border border-stone-300 rounded text-sm bg-white flex justify-between items-start gap-2 min-h-[40px]">
+            <template x-if="disposalForm.assetId">
+              <span class="flex-1 break-words text-stone-800"
+                    x-text="(availableAssets.find(a => a.id === disposalForm.assetId)?.name || '') + ' (' + (availableAssets.find(a => a.id === disposalForm.assetId)?.location || 'No location') + ') — Available: ' + (availableAssets.find(a => a.id === disposalForm.assetId)?.quantity || 0)"></span>
+            </template>
+            <template x-if="!disposalForm.assetId">
+              <span class="flex-1 text-stone-400">— Select Asset to Dispose —</span>
+            </template>
+            <span class="text-stone-400 mt-0.5">▼</span>
+          </button>
+          <div x-show="open" x-transition.opacity
+               class="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-stone-200 rounded shadow-lg max-h-72 overflow-hidden flex flex-col">
+            <input x-model="search" type="text" placeholder="Search by name or location…"
+                   class="w-full px-3 py-2 border-b border-stone-200 text-sm focus:outline-none" />
+            <div class="overflow-y-auto flex-1">
+              <template x-for="a in availableAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase()))" :key="a.id">
+                <div @click="disposalForm.assetId = a.id; onDisposalAssetSelected(); open = false; search = ''"
+                     :class="disposalForm.assetId === a.id ? 'bg-stone-100' : 'hover:bg-stone-50'"
+                     class="px-3 py-2 cursor-pointer text-sm border-b border-stone-100">
+                  <div class="text-stone-800 break-words" x-text="a.name"></div>
+                  <div class="text-xs text-stone-500 mt-0.5">
+                    <span x-text="a.location || 'No location'"></span> · <span x-text="`Available: ${a.quantity}`"></span>
+                  </div>
+                </div>
+              </template>
+              <template x-if="availableAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase())).length === 0">
+                <div class="px-3 py-4 text-sm text-stone-400 text-center">No matches</div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <input :value="selectedDisposalAsset?.category || ''" type="text" readonly placeholder="Category"
+                 class="px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          <input :value="selectedDisposalAsset?.location || ''" type="text" readonly placeholder="Location"
+                 class="px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Available Qty</label>
+            <input :value="selectedDisposalAsset?.quantity || 0" type="number" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Original Unit Cost (RM)</label>
+            <input :value="(selectedDisposalAsset?.unit_cost || 0).toFixed(2)" type="text" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+          </div>
+        </div>
+
+        <p class="text-sm text-stone-500 mt-2 mb-1">Disposal Details</p>
+
+        <div class="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Qty Disposed</label>
+            <input x-model.number="disposalForm.qty" type="number" min="1" step="1"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Cost per Unit (RM)</label>
+            <input x-model.number="disposalForm.unitCost" type="number" min="0" step="0.01"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Total Cost Disposed (RM)</label>
+            <input :value="disposalTotalCost.toFixed(2)" type="text" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="text-xs text-stone-500">Sales Proceed (RM)</label>
+            <input x-model.number="disposalForm.salesProceed" type="number" min="0" step="0.01"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+          <div>
+            <label class="text-xs text-stone-500">Year of Disposal</label>
+            <input :value="disposalYearFromDate" type="number" readonly
+                   class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="text-xs text-stone-500">Date of Disposal</label>
+          <input x-model="disposalForm.date" type="date"
+                 class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+        </div>
+
+        <div class="flex justify-end mb-4">
+          <button @click="refreshDisposalList()" class="text-xs text-stone-400 hover:text-stone-700 tracking-wider">↻ Refresh Assets</button>
+        </div>
+
+        <input x-model="disposalForm.remarks" type="text" placeholder="Remarks"
+               class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+        <button @click="saveDisposal()" :disabled="disposalSaving"
+                class="w-full py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                x-text="disposalSaving ? 'Saving…' : 'Record Disposal'"></button>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section x-show="activeTab === 'reports'" class="mt-6">
+
+      <!-- Header row with year/month + Generate -->
+      <div class="flex items-center justify-between mb-4 px-2">
+        <h2 class="text-xl text-stone-800 font-light">Comprehensive Asset Register</h2>
+        <div class="flex items-center gap-2">
+          <input x-model.number="report.year" type="number" placeholder="Year" min="2000" max="2100"
+                 class="w-24 px-2 py-1 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          <select x-model.number="report.month"
+                  class="w-36 px-2 py-1 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <template x-for="m in MONTHS" :key="m[0]">
+              <option :value="m[0]"
+                      :selected="report.month === m[0]"
+                      x-text="`${String(m[0]).padStart(2,'0')} - ${m[1]}`"></option>
+            </template>
+          </select>
+          <button @click="generateReport()" :disabled="report.generating"
+                  class="text-sm px-3 py-1.5 bg-[#7F0019] text-white rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors flex items-center gap-1"
+                  x-text="report.generating ? 'Generating…' : 'Generate Report'"></button>
+        </div>
+      </div>
+
+      <!-- Main Assets card -->
+      <div class="bg-white border border-stone-200 rounded-sm p-6">
+        <div class="flex items-center mb-4">
+          <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+          <h3 class="font-serif-display text-xl text-stone-800" style="font-weight: 600; letter-spacing: 0.3px;">
+            Main Assets
+          </h3>
+        </div>
+
+        <div class="mb-4">
+          <input
+            x-model="searchQuery"
+            type="text"
+            placeholder="Search by name, category, location, status, year, cost (e.g. 1000)…"
+            class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+        </div>
+
+        <div x-show="loading" class="text-stone-400 text-sm py-8 text-center">Loading…</div>
+
+        <div x-show="!loading && filteredAssets.length === 0" class="text-stone-400 text-sm py-8 text-center">
+          <span x-show="!searchQuery">No assets yet.</span>
+          <span x-show="searchQuery">No assets match "<span x-text="searchQuery"></span>".</span>
+        </div>
+
+        <div x-show="!loading && filteredAssets.length > 0">
+          <table class="app-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Location</th>
+                <th class="center">Status</th>
+                <th class="num">Purchase Cost</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in pagedAssets" :key="a.id">
+                <tr>
+                  <td x-text="a.name"></td>
+                  <td x-text="a.category"></td>
+                  <td x-text="a.location"></td>
+                  <td class="center">
+                    <span :class="a.status === 'Active' ? 'status-active' : 'status-disposed'" x-text="a.status"></span>
+                    <template x-if="a.status === 'Active' && a.qty_disposed > 0">
+                      <div class="text-[11px] text-stone-400 leading-tight mt-0.5"
+                           x-text="`${a.quantity} active · ${a.qty_disposed} disposed`"></div>
+                    </template>
+                  </td>
+                  <td class="num" x-text="a.priceFormatted"></td>
+                  <td class="center">
+                    <span class="inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                      <button class="row-btn" title="Edit" @click="openEditAsset(a)">✎</button>
+                      <button class="row-btn" title="Convert to addition under another asset" @click="openConvertAsset(a)">⇆</button>
+                      <button class="row-btn danger" title="Delete" @click="confirmDeleteAsset(a)">🗑</button>
+                    </span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <!-- Pager -->
+          <div class="pager flex items-center justify-between mt-4 text-sm text-stone-500">
+            <span>
+              <span x-text="filteredAssets.length"></span> records
+              <span x-show="searchQuery"> (filtered)</span>
+            </span>
+            <div class="flex items-center gap-2">
+              <button @click="page = Math.max(1, page - 1)" :disabled="page === 1">‹ Prev</button>
+              <span>Page <span x-text="page"></span> of <span x-text="totalPages"></span></span>
+              <button @click="page = Math.min(totalPages, page + 1)" :disabled="page === totalPages">Next ›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Additional Assets card -->
+      <div class="bg-white border border-stone-200 rounded-sm p-6 mt-6">
+        <div class="flex items-center mb-4">
+          <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+          <h3 class="font-serif-display text-xl text-stone-800" style="font-weight: 600; letter-spacing: 0.3px;">
+            Additional Assets
+          </h3>
+        </div>
+
+        <div class="mb-4">
+          <input
+            x-model="additionsSearchQuery"
+            type="text"
+            placeholder="Search by parent, description, year, cost…"
+            class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+        </div>
+
+        <div x-show="loadingAdds" class="text-stone-400 text-sm py-8 text-center">Loading…</div>
+
+        <div x-show="!loadingAdds && filteredAdditions.length === 0" class="text-stone-400 text-sm py-8 text-center">
+          <span x-show="!additionsSearchQuery">No additions yet.</span>
+          <span x-show="additionsSearchQuery">No additions match "<span x-text="additionsSearchQuery"></span>".</span>
+        </div>
+
+        <div x-show="!loadingAdds && filteredAdditions.length > 0">
+          <table class="app-table">
+            <thead>
+              <tr>
+                <th>Parent Asset</th>
+                <th>Addition</th>
+                <th class="center">Qty</th>
+                <th class="num">Addition Cost</th>
+                <th class="center">Date</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in pagedAdditions" :key="r.id">
+                <tr>
+                  <td x-text="r.parent_name"></td>
+                  <td x-text="r.description"></td>
+                  <td class="center" x-text="r.quantity"></td>
+                  <td class="num" x-text="r.additionCostFmt"></td>
+                  <td class="center" x-text="r.purchase_date"></td>
+                  <td class="center">
+                    <span class="inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                      <button class="row-btn" title="Edit" @click="openEditAddition(r)">✎</button>
+                      <button class="row-btn" title="Convert to main asset (detach from parent)" @click="openConvertAddition(r)">⇆</button>
+                      <button class="row-btn danger" title="Delete" @click="confirmDeleteAddition(r)">🗑</button>
+                    </span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <div class="pager flex items-center justify-between mt-4 text-sm text-stone-500">
+            <span>
+              <span x-text="filteredAdditions.length"></span> records
+              <span x-show="additionsSearchQuery"> (filtered)</span>
+            </span>
+            <div class="flex items-center gap-2">
+              <button @click="additionsPage = Math.max(1, additionsPage - 1)" :disabled="additionsPage === 1">‹ Prev</button>
+              <span>Page <span x-text="additionsPage"></span> of <span x-text="additionsTotalPages"></span></span>
+              <button @click="additionsPage = Math.min(additionsTotalPages, additionsPage + 1)" :disabled="additionsPage === additionsTotalPages">Next ›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- MAINTENANCE -->
+    <section x-show="activeTab === 'maintenance'" class="mt-6">
+      <h2 class="text-2xl text-stone-800 font-light mb-6">Master Data Management</h2>
+
+      <div class="grid grid-cols-2 gap-6">
+        <!-- Categories -->
+        <div class="bg-white border border-stone-200 rounded-sm p-6 flex flex-col">
+          <div class="flex items-center mb-4">
+            <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+            <h3 class="font-serif-display text-xl text-stone-800" style="font-weight: 600;">Asset Categories</h3>
+          </div>
+          <div class="flex-1 overflow-auto" style="max-height: 260px;">
+            <table class="app-table">
+              <thead><tr><th>Name</th><th class="center" style="width: 80px;">Actions</th></tr></thead>
+              <tbody>
+                <template x-for="c in cats" :key="c.id">
+                  <tr>
+                    <td x-text="c.name"></td>
+                    <td class="center">
+                      <span class="inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                        <button class="row-btn" @click="openEditCategory(c)" title="Edit">✎</button>
+                        <button class="row-btn danger" @click="confirmDeleteCategory(c)" title="Delete">🗑</button>
+                      </span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <input x-model="newCatName" type="text" placeholder="New Category" @keydown.enter="addCategory()"
+                   class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            <button @click="addCategory()" :disabled="!newCatName?.trim()"
+                    class="px-3 py-2 bg-[#7F0019] text-white text-sm rounded disabled:opacity-50">+</button>
+          </div>
+        </div>
+
+        <!-- Locations -->
+        <div class="bg-white border border-stone-200 rounded-sm p-6 flex flex-col">
+          <div class="flex items-center mb-4">
+            <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+            <h3 class="font-serif-display text-xl text-stone-800" style="font-weight: 600;">Asset Locations</h3>
+          </div>
+          <div class="flex-1 overflow-auto" style="max-height: 260px;">
+            <table class="app-table">
+              <thead><tr><th>Name</th><th class="center" style="width: 80px;">Actions</th></tr></thead>
+              <tbody>
+                <template x-for="l in locs" :key="l.id">
+                  <tr>
+                    <td x-text="l.name"></td>
+                    <td class="center">
+                      <span class="inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                        <button class="row-btn" @click="openEditLocation(l)" title="Edit">✎</button>
+                        <button class="row-btn danger" @click="confirmDeleteLocation(l)" title="Delete">🗑</button>
+                      </span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <input x-model="newLocName" type="text" placeholder="New Location" @keydown.enter="addLocation()"
+                   class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            <button @click="addLocation()" :disabled="!newLocName?.trim()"
+                    class="px-3 py-2 bg-[#7F0019] text-white text-sm rounded disabled:opacity-50">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Depreciation Rates (full width) -->
+      <div class="bg-white border border-stone-200 rounded-sm p-6 mt-6">
+        <div class="flex items-center mb-4">
+          <div class="w-1 h-5 bg-[#7F0019] mr-3"></div>
+          <h3 class="font-serif-display text-xl text-stone-800" style="font-weight: 600;">Depreciation Rates</h3>
+        </div>
+        <table class="app-table">
+          <thead><tr><th>Percentage (%)</th><th class="center" style="width: 100px;">Actions</th></tr></thead>
+          <tbody>
+            <template x-for="r in rates" :key="r.id">
+              <tr>
+                <td x-text="`${r.percentage}%`"></td>
+                <td class="center">
+                  <span class="inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                    <button class="row-btn" @click="openEditRate(r)" title="Edit">✎</button>
+                    <button class="row-btn danger" @click="confirmDeleteRate(r)" title="Delete">🗑</button>
+                  </span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 mt-4">
+          <input x-model.number="newRatePct" type="number" min="0" step="0.1" placeholder="New Rate (%)" @keydown.enter="addRate()"
+                 class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          <button @click="addRate()" :disabled="newRatePct === null || newRatePct === '' || isNaN(newRatePct)"
+                  class="px-3 py-2 bg-[#7F0019] text-white text-sm rounded disabled:opacity-50">+</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============= MODAL: Edit Main Asset ============= -->
+  <div x-show="editingAsset !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-start justify-center pt-12 overflow-y-auto"
+       @click.self="editingAsset = null"
+       x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-8 max-w-2xl w-full mx-4 mb-12" @click.stop>
+      <template x-if="editingAsset">
+        <div>
+          <div class="section-banner">
+            <span class="text-lg">Edit Asset: <span x-text="editingAsset.name"></span></span>
+          </div>
+
+          <input x-model="editingAsset.name" type="text" placeholder="Asset Description"
+                 class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <select x-model.number="editingAsset.categoryId"
+                    class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— Category —</option>
+              <template x-for="c in cats" :key="c.id">
+                <option :value="c.id" :selected="editingAsset.categoryId === c.id" x-text="c.name"></option>
+              </template>
+            </select>
+            <select x-model.number="editingAsset.locationId"
+                    class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— Location —</option>
+              <template x-for="l in locs" :key="l.id">
+                <option :value="l.id" :selected="editingAsset.locationId === l.id" x-text="l.name"></option>
+              </template>
+            </select>
+          </div>
+
+          <input x-model="editingAsset.locationDetail" type="text"
+                 placeholder="Location Detail (e.g. Shelf B-3, Room 204)"
+                 class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+          <div class="grid grid-cols-4 gap-4 mb-4">
+            <div>
+              <label class="text-xs text-stone-500">Qty</label>
+              <input x-model.number="editingAsset.qty" type="number" min="1" step="1"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+            <div class="col-span-2">
+              <label class="text-xs text-stone-500">Unit Cost (RM)</label>
+              <input x-model.number="editingAsset.unitCost" type="number" min="0" step="0.01"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+            <div>
+              <label class="text-xs text-stone-500">Purchase Cost (RM)</label>
+              <input :value="editAssetTotal.toFixed(2)" type="text" readonly
+                     class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <select x-model.number="editingAsset.depRate"
+                    class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— Depreciation Rate —</option>
+              <template x-for="r in rates" :key="r.id">
+                <option :value="Number(r.percentage)"
+                        :selected="Number(editingAsset.depRate) === Number(r.percentage)"
+                        x-text="`${r.percentage}%`"></option>
+              </template>
+            </select>
+            <select x-model="editingAsset.status"
+                    class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="Active">Active</option>
+              <option value="Disposed">Disposed</option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="text-xs text-stone-500">Year of Purchase</label>
+              <input :value="editAssetYear" type="number" readonly
+                     class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+            </div>
+            <div>
+              <label class="text-xs text-stone-500">Date of Purchase</label>
+              <input x-model="editingAsset.purchaseDate" type="date"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+          </div>
+
+          <div class="flex justify-end mb-4">
+            <button @click="syncDropdowns()" class="text-xs text-stone-400 hover:text-stone-700 tracking-wider">↻ Sync Options</button>
+          </div>
+
+          <input x-model="editingAsset.remarks" type="text" placeholder="Remarks"
+                 class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+          <div class="flex gap-2">
+            <button @click="editingAsset = null"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">
+              Cancel
+            </button>
+            <button @click="saveEditAsset()" :disabled="editingAssetSaving"
+                    class="flex-1 py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                    x-text="editingAssetSaving ? 'Saving…' : 'Update Record'"></button>
+          </div>
+          <button @click="confirmDeleteAssetFromEdit()"
+                  class="w-full py-2 mt-2 text-sm text-[#7F0019] bg-red-50/60 border border-[#7F0019]/30 rounded hover:bg-red-100/70 hover:border-[#7F0019]/60 transition-colors">
+            Delete Record
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Confirm Delete Asset ============= -->
+  <div x-show="deletingAsset !== null"
+       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+       @click.self="deletingAsset = null"
+       x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Confirm Deletion</h3>
+      <p class="text-stone-600 mb-6">
+        Are you sure you want to delete
+        "<span class="font-medium" x-text="deletingAsset?.name"></span>"?
+        This action cannot be undone.
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button @click="deletingAsset = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="deleteAsset()"
+                class="px-4 py-2 text-sm bg-red-700 text-white rounded hover:bg-red-800">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Edit Addition ============= -->
+  <div x-show="editingAddition !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-start justify-center pt-12 overflow-y-auto"
+       @click.self="editingAddition = null"
+       x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-8 max-w-2xl w-full mx-4 mb-12" @click.stop>
+      <template x-if="editingAddition">
+        <div>
+          <div class="section-banner">
+            <span class="text-lg">Edit Addition: <span x-text="editingAddition.description"></span></span>
+          </div>
+
+          <!-- Custom searchable dropdown (wraps long names) -->
+          <div x-data="{ open: false, search: '' }" @click.outside="open = false"
+               class="relative mb-4">
+            <button type="button" @click="open = !open"
+                    class="w-full text-left px-3 py-2 border border-stone-300 rounded text-sm bg-white flex justify-between items-start gap-2 min-h-[40px]">
+              <template x-if="editingAddition.parentId">
+                <span class="flex-1 break-words text-stone-800"
+                      x-text="(activeAssets.find(a => a.id === editingAddition.parentId)?.name || '') + ' (' + (activeAssets.find(a => a.id === editingAddition.parentId)?.location || 'No location') + ')'"></span>
+              </template>
+              <template x-if="!editingAddition.parentId">
+                <span class="flex-1 text-stone-400">— Parent Asset —</span>
+              </template>
+              <span class="text-stone-400 mt-0.5">▼</span>
+            </button>
+            <div x-show="open" x-transition.opacity
+                 class="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-stone-200 rounded shadow-lg max-h-72 overflow-hidden flex flex-col">
+              <input x-model="search" type="text" placeholder="Search by name or location…"
+                     class="w-full px-3 py-2 border-b border-stone-200 text-sm focus:outline-none" />
+              <div class="overflow-y-auto flex-1">
+                <template x-for="a in activeAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase()))" :key="a.id">
+                  <div @click="editingAddition.parentId = a.id; open = false; search = ''"
+                       :class="editingAddition.parentId === a.id ? 'bg-stone-100' : 'hover:bg-stone-50'"
+                       class="px-3 py-2 cursor-pointer text-sm border-b border-stone-100">
+                    <div class="text-stone-800 break-words" x-text="a.name"></div>
+                    <div class="text-xs text-stone-500 mt-0.5" x-text="a.location || 'No location'"></div>
+                  </div>
+                </template>
+                <template x-if="activeAssets.filter(x => !search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase())).length === 0">
+                  <div class="px-3 py-4 text-sm text-stone-400 text-center">No matches</div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <input x-model="editingAddition.description" type="text" placeholder="Description"
+                 class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+          <div class="grid grid-cols-4 gap-4 mb-4">
+            <div>
+              <label class="text-xs text-stone-500">Qty</label>
+              <input x-model.number="editingAddition.qty" type="number" min="1" step="1"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+            <div class="col-span-2">
+              <label class="text-xs text-stone-500">Unit Cost (RM)</label>
+              <input x-model.number="editingAddition.unitCost" type="number" min="0" step="0.01"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+            <div>
+              <label class="text-xs text-stone-500">Addition Cost (RM)</label>
+              <input :value="editAdditionTotal.toFixed(2)" type="text" readonly
+                     class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600 text-right tabular-nums" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <select x-model.number="editingAddition.depRate"
+                    class="px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— Depreciation Rate —</option>
+              <template x-for="r in rates" :key="r.id">
+                <option :value="Number(r.percentage)"
+                        :selected="Number(editingAddition.depRate) === Number(r.percentage)"
+                        x-text="`${r.percentage}%`"></option>
+              </template>
+            </select>
+            <div>
+              <label class="text-xs text-stone-500">Year of Purchase</label>
+              <input :value="editAdditionYear" type="number" readonly
+                     class="w-full px-3 py-2 border border-stone-200 rounded text-sm bg-stone-50 text-stone-600" />
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label class="text-xs text-stone-500">Date of Purchase</label>
+            <input x-model="editingAddition.purchaseDate" type="date"
+                   class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </div>
+
+          <input x-model="editingAddition.remarks" type="text" placeholder="Remarks"
+                 class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+
+          <div class="flex gap-2">
+            <button @click="editingAddition = null"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">
+              Cancel
+            </button>
+            <button @click="saveEditAddition()" :disabled="editingAdditionSaving"
+                    class="flex-1 py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                    x-text="editingAdditionSaving ? 'Saving…' : 'Update Addition'"></button>
+          </div>
+          <button @click="confirmDeleteAdditionFromEdit()"
+                  class="w-full py-2 mt-2 text-sm text-[#7F0019] bg-red-50/60 border border-[#7F0019]/30 rounded hover:bg-red-100/70 hover:border-[#7F0019]/60 transition-colors">
+            Delete Addition
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Confirm Delete Addition ============= -->
+  <div x-show="deletingAddition !== null"
+       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+       @click.self="deletingAddition = null"
+       x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Confirm Deletion</h3>
+      <p class="text-stone-600 mb-6">
+        Delete addition "<span class="font-medium" x-text="deletingAddition?.description"></span>"
+        from "<span class="font-medium" x-text="deletingAddition?.parent_name"></span>"?
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button @click="deletingAddition = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="deleteAddition()"
+                class="px-4 py-2 text-sm bg-red-700 text-white rounded hover:bg-red-800">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Edit Category ============= -->
+  <div x-show="editingCat !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center"
+       @click.self="editingCat = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Edit Category</h3>
+      <input x-model="editingCat.name" type="text" @keydown.enter="saveCategoryEdit()"
+             class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+      <div class="flex gap-2 justify-end">
+        <button @click="editingCat = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="saveCategoryEdit()"
+                class="px-4 py-2 text-sm bg-[#7F0019] text-white rounded hover:bg-[#6a0015]">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Confirm Delete Category ============= -->
+  <div x-show="deletingCat !== null"
+       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+       @click.self="deletingCat = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Confirm Deletion</h3>
+      <p class="text-stone-600 mb-6">
+        Delete category "<span class="font-medium" x-text="deletingCat?.name"></span>"?
+        Assets using this category will keep their data but show "N/A".
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button @click="deletingCat = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="deleteCategory()"
+                class="px-4 py-2 text-sm bg-red-700 text-white rounded hover:bg-red-800">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Edit Location ============= -->
+  <div x-show="editingLoc !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center"
+       @click.self="editingLoc = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Edit Location</h3>
+      <input x-model="editingLoc.name" type="text" @keydown.enter="saveLocationEdit()"
+             class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+      <div class="flex gap-2 justify-end">
+        <button @click="editingLoc = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="saveLocationEdit()"
+                class="px-4 py-2 text-sm bg-[#7F0019] text-white rounded hover:bg-[#6a0015]">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Confirm Delete Location ============= -->
+  <div x-show="deletingLoc !== null"
+       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+       @click.self="deletingLoc = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Confirm Deletion</h3>
+      <p class="text-stone-600 mb-6">
+        Delete location "<span class="font-medium" x-text="deletingLoc?.name"></span>"?
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button @click="deletingLoc = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="deleteLocation()"
+                class="px-4 py-2 text-sm bg-red-700 text-white rounded hover:bg-red-800">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Edit Rate ============= -->
+  <div x-show="editingRate !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-center justify-center"
+       @click.self="editingRate = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Edit Rate</h3>
+      <input x-model.number="editingRate.percentage" type="number" min="0" step="0.1" placeholder="Percentage" @keydown.enter="saveRateEdit()"
+             class="w-full px-3 py-2 mb-4 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+      <div class="flex gap-2 justify-end">
+        <button @click="editingRate = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="saveRateEdit()"
+                class="px-4 py-2 text-sm bg-[#7F0019] text-white rounded hover:bg-[#6a0015]">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Confirm Delete Rate ============= -->
+  <div x-show="deletingRate !== null"
+       class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+       @click.self="deletingRate = null" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-6 max-w-md w-full mx-4" @click.stop>
+      <h3 class="text-lg tracking-wide text-stone-800 border-b border-stone-100 pb-2 mb-4">Confirm Deletion</h3>
+      <p class="text-stone-600 mb-6">
+        Delete rate "<span class="font-medium" x-text="deletingRate ? `${deletingRate.percentage}%` : ''"></span>"?
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button @click="deletingRate = null"
+                class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+        <button @click="deleteRate()"
+                class="px-4 py-2 text-sm bg-red-700 text-white rounded hover:bg-red-800">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Convert Asset to Addition ============= -->
+  <div x-show="convertingAsset !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-start justify-center pt-12 overflow-y-auto"
+       @click.self="cancelConvert()" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-8 max-w-xl w-full mx-4 mb-12" @click.stop>
+      <template x-if="convertingAsset">
+        <div>
+          <div class="section-banner">
+            <span class="text-lg">Convert to Additional Asset</span>
+          </div>
+
+          <p class="text-sm text-stone-600 mb-2">
+            Converting this asset into an addition will:
+          </p>
+          <ul class="text-xs text-stone-500 mb-4 list-disc ml-5 space-y-1">
+            <li>Move it under the parent asset you select below</li>
+            <li>Carry over its name, qty, cost, depreciation rate, year &amp; remarks</li>
+            <li>Delete the original asset record (the addition replaces it)</li>
+          </ul>
+
+          <div class="bg-stone-50 border border-stone-200 rounded p-3 mb-4 text-sm">
+            <div class="text-xs text-stone-500 mb-1">Asset being converted</div>
+            <div class="font-medium text-stone-800" x-text="convertingAsset.name"></div>
+            <div class="text-xs text-stone-500 mt-1">
+              <span x-text="convertingAsset.location"></span> ·
+              <span x-text="`Qty ${convertingAsset.quantity}`"></span> ·
+              <span x-text="convertingAsset.priceFormatted"></span>
+            </div>
+          </div>
+
+          <label class="text-xs text-stone-500 mb-1 block">New Parent Asset</label>
+          <!-- Custom dropdown: wraps long names, has search -->
+          <div x-data="{ open: false, search: '' }" @click.outside="open = false"
+               class="relative mb-4">
+            <button type="button" @click="open = !open"
+                    class="w-full text-left px-3 py-2 border border-stone-300 rounded text-sm bg-white flex justify-between items-start gap-2 min-h-[40px]">
+              <template x-if="convertTargetParentId">
+                <span class="flex-1 break-words text-stone-800"
+                      x-text="(activeAssets.find(a => a.id === convertTargetParentId)?.name || '') + ' (' + (activeAssets.find(a => a.id === convertTargetParentId)?.location || 'No location') + ')'"></span>
+              </template>
+              <template x-if="!convertTargetParentId">
+                <span class="flex-1 text-stone-400">— Select parent asset —</span>
+              </template>
+              <span class="text-stone-400 mt-0.5">▼</span>
+            </button>
+            <div x-show="open" x-transition.opacity
+                 class="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-stone-200 rounded shadow-lg max-h-72 overflow-hidden flex flex-col">
+              <input x-model="search" type="text" placeholder="Search by name or location…" autofocus
+                     class="w-full px-3 py-2 border-b border-stone-200 text-sm focus:outline-none" />
+              <div class="overflow-y-auto flex-1">
+                <template x-for="a in activeAssets.filter(x => x.id !== convertingAsset.id && (!search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase())))" :key="a.id">
+                  <div @click="convertTargetParentId = a.id; open = false; search = ''"
+                       :class="convertTargetParentId === a.id ? 'bg-stone-100' : 'hover:bg-stone-50'"
+                       class="px-3 py-2 cursor-pointer text-sm border-b border-stone-100">
+                    <div class="text-stone-800 break-words" x-text="a.name"></div>
+                    <div class="text-xs text-stone-500 mt-0.5" x-text="a.location || 'No location'"></div>
+                  </div>
+                </template>
+                <template x-if="activeAssets.filter(x => x.id !== convertingAsset.id && (!search || x.name.toLowerCase().includes(search.toLowerCase()) || (x.location || '').toLowerCase().includes(search.toLowerCase()))).length === 0">
+                  <div class="px-3 py-4 text-sm text-stone-400 text-center">No matches</div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="cancelConvert()"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">
+              Cancel
+            </button>
+            <button @click="performConvert()" :disabled="convertSaving || !convertTargetParentId"
+                    class="flex-1 py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                    x-text="convertSaving ? 'Converting…' : 'Confirm Convert'"></button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Convert Addition to Main Asset ============= -->
+  <div x-show="convertingAddition !== null"
+       class="fixed inset-0 z-40 bg-black/30 flex items-start justify-center pt-12 overflow-y-auto"
+       @click.self="cancelConvertAddition()" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-8 max-w-xl w-full mx-4 mb-12" @click.stop>
+      <template x-if="convertingAddition">
+        <div>
+          <div class="section-banner">
+            <span class="text-lg">Convert to Main Asset</span>
+          </div>
+
+          <p class="text-sm text-stone-600 mb-2">
+            This will detach the addition from its parent and promote it to a standalone main asset.
+          </p>
+          <ul class="text-xs text-stone-500 mb-4 list-disc ml-5 space-y-1">
+            <li>Carry over its description, qty, cost, depreciation rate, year &amp; remarks</li>
+            <li>Fill in Category &amp; Location below (pre-filled from the current parent)</li>
+            <li>Delete the original addition record</li>
+          </ul>
+
+          <div class="bg-stone-50 border border-stone-200 rounded p-3 mb-4 text-sm">
+            <div class="text-xs text-stone-500 mb-1">Addition being converted</div>
+            <div class="font-medium text-stone-800" x-text="convertingAddition.description"></div>
+            <div class="text-xs text-stone-500 mt-1">
+              Currently under: <span x-text="convertingAddition.parent_name"></span> ·
+              <span x-text="`Qty ${convertingAddition.quantity}`"></span> ·
+              <span x-text="convertingAddition.additionCostFmt"></span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="text-xs text-stone-500 mb-1 block">Category</label>
+              <select x-model.number="convertAdditionForm.categoryId"
+                      class="w-full px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+                <option value="">— Category —</option>
+                <template x-for="c in cats" :key="c.id">
+                  <option :value="c.id"
+                          :selected="convertAdditionForm.categoryId === c.id"
+                          x-text="c.name"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-stone-500 mb-1 block">Location</label>
+              <select x-model.number="convertAdditionForm.locationId"
+                      class="w-full px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+                <option value="">— Location —</option>
+                <template x-for="l in locs" :key="l.id">
+                  <option :value="l.id"
+                          :selected="convertAdditionForm.locationId === l.id"
+                          x-text="l.name"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="text-xs text-stone-500 mb-1 block">Location Detail</label>
+              <input x-model="convertAdditionForm.locationDetail" type="text"
+                     placeholder="e.g. Shelf B-3"
+                     class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+            </div>
+            <div>
+              <label class="text-xs text-stone-500 mb-1 block">Status</label>
+              <select x-model="convertAdditionForm.status"
+                      class="w-full px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+                <option value="Active">Active</option>
+                <option value="Disposed">Disposed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="cancelConvertAddition()"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">
+              Cancel
+            </button>
+            <button @click="performConvertAddition()" :disabled="convertAdditionSaving"
+                    class="flex-1 py-2 bg-[#7F0019] text-white text-sm tracking-wide rounded disabled:opacity-50 hover:bg-[#6a0015] transition-colors"
+                    x-text="convertAdditionSaving ? 'Converting…' : 'Confirm Convert'"></button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Import Assets ============= -->
+  <div x-show="importOpen"
+       class="fixed inset-0 z-40 bg-black/30 flex items-start justify-center pt-12 overflow-y-auto"
+       @click.self="cancelImport()" x-transition.opacity>
+    <div class="bg-white border border-stone-200 rounded p-8 max-w-3xl w-full mx-4 mb-12" @click.stop>
+
+      <div class="section-banner">
+        <span class="text-lg">Import Assets from Excel</span>
+      </div>
+
+      <!-- Stage 1: file picker -->
+      <template x-if="!importPreview && !importing">
+        <div>
+          <p class="text-sm text-stone-600 mb-2">
+            Upload a Fixed Asset Register file (<code>.xls</code> or <code>.xlsx</code>) — the layout should mirror the year-end report.
+          </p>
+          <ul class="text-xs text-stone-500 mb-4 list-disc ml-5 space-y-1">
+            <li>ALL-CAPS rows in column A are treated as <strong>Category</strong> headers</li>
+            <li>Mixed-case rows in column A are treated as <strong>Location</strong> headers</li>
+            <li>4-space indented rows are <strong>Asset</strong> rows; <code>+&nbsp;</code>-prefixed rows are <strong>Additions</strong></li>
+            <li>Each Excel row becomes 1 record — empty fields stay empty (no synthetic defaults)</li>
+            <li>Duplicates (same name + location) are skipped</li>
+          </ul>
+
+          <input type="file" accept=".xls,.xlsx,.csv" @change="onImportFileSelected($event)"
+                 class="block w-full text-sm text-stone-700 file:mr-3 file:py-2 file:px-4 file:border-0 file:bg-[#7F0019] file:text-white file:text-sm file:rounded file:cursor-pointer mb-4" />
+
+          <template x-if="importParsing">
+            <p class="text-xs text-stone-500">Parsing file…</p>
+          </template>
+
+          <div class="flex justify-end">
+            <button @click="cancelImport()"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Close</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Stage 2: preview -->
+      <template x-if="importPreview && !importing">
+        <div>
+          <div class="grid grid-cols-3 gap-3 mb-4 text-sm">
+            <div class="bg-stone-50 border border-stone-200 rounded p-3">
+              <div class="text-xs text-stone-500">Assets detected</div>
+              <div class="text-lg font-medium text-stone-800" x-text="importPreview.assets.filter(a=>!a.isAddition).length"></div>
+            </div>
+            <div class="bg-stone-50 border border-stone-200 rounded p-3">
+              <div class="text-xs text-stone-500">Additions detected</div>
+              <div class="text-lg font-medium text-stone-800" x-text="importPreview.assets.filter(a=>a.isAddition).length"></div>
+            </div>
+            <div class="bg-stone-50 border border-stone-200 rounded p-3">
+              <div class="text-xs text-stone-500">Period date</div>
+              <div class="text-sm font-medium text-stone-800" x-text="importPreview.periodDate || '—'"></div>
+            </div>
+          </div>
+
+          <template x-if="importPreview.errors.length > 0">
+            <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+              <span x-text="importPreview.errors.length"></span> row(s) couldn't be parsed and will be skipped.
+            </p>
+          </template>
+
+          <p class="text-xs text-stone-500 mb-2">Preview (first 10 rows):</p>
+          <div class="border border-stone-200 rounded mb-4 max-h-72 overflow-auto">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Location</th>
+                  <th class="center">Qty</th>
+                  <th class="center">Year</th>
+                  <th class="num">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(a, i) in importPreview.assets.slice(0, 10)" :key="i">
+                  <tr>
+                    <td x-text="(a.isAddition ? '+ ' : '') + (a.name.length > 50 ? a.name.slice(0, 50) + '…' : a.name)"></td>
+                    <td x-text="a.category || '—'"></td>
+                    <td x-text="a.location || '—'"></td>
+                    <td class="center" x-text="a.quantity ?? '—'"></td>
+                    <td class="center" x-text="a.purchase_year || '—'"></td>
+                    <td class="num" x-text="`RM ${(a.purchase_cost || 0).toFixed(2)}`"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="text-xs text-stone-500 mb-4">
+            <span x-text="importPreview.assets.length"></span> rows total.
+            New categories: <span x-text="importPreview.newCategories.length"></span>,
+            new locations: <span x-text="importPreview.newLocations.length"></span>.
+          </p>
+
+          <div class="flex gap-2 justify-end">
+            <button @click="cancelImport()"
+                    class="px-4 py-2 text-sm text-stone-500 border border-stone-200 rounded hover:bg-stone-50">Cancel</button>
+            <button @click="performImport()"
+                    class="px-5 py-2 text-sm bg-[#7F0019] text-white rounded hover:bg-[#6a0015]">
+              Import <span x-text="importPreview.assets.length"></span> records
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Stage 3: importing -->
+      <template x-if="importing">
+        <div class="text-center py-6">
+          <p class="text-sm text-stone-600 mb-3">Importing… please don't close this tab.</p>
+          <div class="text-3xl font-serif-display text-stone-800 mb-1">
+            <span x-text="importProgress.done"></span> /
+            <span x-text="importProgress.total"></span>
+          </div>
+          <p class="text-xs text-stone-500" x-show="importProgress.skipped > 0">
+            (<span x-text="importProgress.skipped"></span> skipped as duplicates)
+          </p>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</body>
+</html>

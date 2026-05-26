@@ -1,0 +1,117 @@
+/* Minimal extras on top of Tailwind CDN. */
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.font-serif-display {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+/* Active tab indicator */
+.tab-btn {
+  position: relative;
+  padding: 0.75rem 1rem;
+  color: #737373;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms, border-color 120ms;
+}
+.tab-btn:hover {
+  color: #333;
+}
+.tab-btn.active {
+  color: #7F0019;
+  border-bottom-color: #7F0019;
+}
+
+/* Section banner — matches the Python app's beige header banner */
+.section-banner {
+  background: #EDE6DA;
+  border-left: 4px solid #7F0019;
+  border-bottom: 1px solid #d6d3d1;
+  padding: 1rem 2rem;
+  margin: -2rem -2rem 1.5rem -2rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #292524;
+}
+
+/* Status pill colors */
+.status-active { color: #4A6741; }
+.status-disposed { color: #7F0019; }
+
+/* Tables */
+table.app-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.app-table th, .app-table td {
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #f5f5f4;
+}
+.app-table th {
+  font-weight: 500;
+  color: #57534e;
+  background: #fafaf9;
+  border-bottom: 1px solid #e7e5e4;
+}
+/* Freeze header row when its container scrolls */
+.app-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.app-table tbody tr:hover {
+  background: #fafaf9;
+}
+.app-table td.num, .app-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.app-table td.center, .app-table th.center {
+  text-align: center;
+}
+
+/* Edit/Delete row buttons */
+.row-btn {
+  color: #737373;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.row-btn:hover { background: #f5f5f4; }
+.row-btn.danger:hover { color: #7F0019; }
+
+/* Keep action buttons on one row */
+.row-actions {
+  display: inline-flex;
+  gap: 0.25rem;
+  justify-content: center;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* Pagination */
+.pager button {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #e7e5e4;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #57534e;
+  border-radius: 3px;
+}
+.pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pager button:hover:not(:disabled) { background: #fafaf9; }
+
+/* Hide config error overlay when not needed */
+[x-cloak] { display: none !important; }

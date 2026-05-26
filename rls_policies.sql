@@ -1,0 +1,6 @@
+-- This file has been superseded by setup.sql.
+--
+-- For new Supabase projects (or to re-run RLS cleanly), use setup.sql —
+-- it creates tables AND policies in one idempotent file.
+--
+-- Kept here only as a placeholder for old references.
