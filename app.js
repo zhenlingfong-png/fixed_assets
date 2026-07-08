@@ -5,7 +5,7 @@
 // ===== Top-level constants =====
 const PAGE_SIZE = 10;
 const RESIDUAL_VALUE = 1.0;
-const COMPANY_NAME = 'MJM ESTATES SDN BHD (1255996-A)';
+const COMPANY_NAME = 'MJM (PALM OIL MILL) SDN BHD (969458-H)';
 const MONTHS = [
   [1, 'Jan'], [2, 'Feb'], [3, 'Mar'], [4, 'Apr'], [5, 'May'], [6, 'Jun'],
   [7, 'Jul'], [8, 'Aug'], [9, 'Sep'], [10, 'Oct'], [11, 'Nov'], [12, 'Dec'],
@@ -20,6 +20,21 @@ const yearFromISO = (s) => {
 };
 const formatMoney = (n) =>
   `RM ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Supabase/PostgREST caps every response at 1000 rows, so a single select()
+// silently truncates larger registers. Page through with .range() until a
+// short batch signals the end. buildQuery must return a fresh query each call.
+async function fetchAllRows(buildQuery) {
+  const CHUNK = 1000;
+  const all = [];
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await buildQuery().range(from, from + CHUNK - 1);
+    if (error) throw error;
+    const batch = data || [];
+    all.push(...batch);
+    if (batch.length < CHUNK) return all;
+  }
+}
 
 // ===== Report math helpers =====
 function resolvePY(a) {
@@ -442,7 +457,11 @@ document.addEventListener('alpine:init', () => {
 
     assets: [],
     searchQuery: '',
+    // 'all' = overall blob search; 'name' = description text search;
+    // 'category' / 'location' = exact pick from the Maintenance presets.
+    searchField: 'all',
     page: 1,
+    assetSort: { key: null, dir: 'asc' },
 
     additions: [],
     additionsSearchQuery: '',
@@ -579,12 +598,12 @@ document.addEventListener('alpine:init', () => {
 
     async loadDisposalAggregates() {
       try {
-        const { data, error } = await this.supabase
+        const data = await fetchAllRows(() => this.supabase
           .from('disposals')
-          .select('asset_id, quantity_disposed');
-        if (error) throw error;
+          .select('asset_id, quantity_disposed')
+          .order('id'));
         const agg = {};
-        for (const d of data || []) {
+        for (const d of data) {
           if (!d.asset_id) continue;
           agg[d.asset_id] = (agg[d.asset_id] || 0) + (Number(d.quantity_disposed) || 0);
         }
@@ -637,13 +656,14 @@ document.addEventListener('alpine:init', () => {
 
     async loadActiveAssets() {
       try {
-        const { data, error } = await this.supabase
+        // .order('id') tiebreak keeps .range() pages stable when names repeat
+        const data = await fetchAllRows(() => this.supabase
           .from('assets')
           .select('id, name, purchase_cost, depreciation_rate, category_id, location_id, categories(name), locations(name)')
           .eq('status', 'Active')
-          .order('name');
-        if (error) throw error;
-        this.activeAssets = (data || []).map(r => ({
+          .order('name')
+          .order('id'));
+        this.activeAssets = data.map(r => ({
           id: r.id,
           name: r.name || '',
           purchase_cost: Number(r.purchase_cost) || 0,
@@ -660,11 +680,10 @@ document.addEventListener('alpine:init', () => {
     async loadAssets() {
       this.loading = true;
       try {
-        const { data, error } = await this.supabase
+        const data = await fetchAllRows(() => this.supabase
           .from('assets')
           .select('*, categories(name), locations(name)')
-          .order('id', { ascending: false });
-        if (error) throw error;
+          .order('id', { ascending: false }));
         this.assets = data.map(r => this.shapeAsset(r));
       } catch (err) {
         console.error('loadAssets:', err);
@@ -677,12 +696,11 @@ document.addEventListener('alpine:init', () => {
     async loadAdditions() {
       this.loadingAdds = true;
       try {
-        const { data, error } = await this.supabase
+        const data = await fetchAllRows(() => this.supabase
           .from('asset_additions')
           .select('*, assets(name)')
-          .order('id', { ascending: false });
-        if (error) throw error;
-        this.additions = (data || []).map(r => this.shapeAddition(r));
+          .order('id', { ascending: false }));
+        this.additions = data.map(r => this.shapeAddition(r));
       } catch (err) {
         console.error('loadAdditions:', err);
         this.notify(`Could not load additions: ${err.message || err}`, 'negative');
@@ -861,14 +879,14 @@ document.addEventListener('alpine:init', () => {
     // ===== Disposal =====
     async loadAvailableAssets() {
       try {
-        const { data, error } = await this.supabase
+        const data = await fetchAllRows(() => this.supabase
           .from('assets')
           .select('id, name, quantity, unit_cost, purchase_cost, category_id, location_id, categories(name), locations(name)')
           .eq('status', 'Active')
           .gt('quantity', 0)
-          .order('name');
-        if (error) throw error;
-        this.availableAssets = (data || []).map(r => ({
+          .order('name')
+          .order('id'));
+        this.availableAssets = data.map(r => ({
           id: r.id,
           name: r.name || '',
           quantity: r.quantity || 0,
@@ -1266,22 +1284,15 @@ document.addEventListener('alpine:init', () => {
     },
 
     async computePeriodRows(year, month) {
-      const [assetsRes, disposalsRes, additionsRes] = await Promise.all([
-        this.supabase.from('assets').select(
+      const [assets, disposals, additions] = await Promise.all([
+        fetchAllRows(() => this.supabase.from('assets').select(
           'id, name, quantity, unit_cost, purchase_cost, depreciation_rate, ' +
           'purchase_year, purchase_date, status, category_id, location_id, ' +
           'location_detail, remarks, categories(name), locations(name)'
-        ),
-        this.supabase.from('disposals').select('*'),
-        this.supabase.from('asset_additions').select('*'),
+        ).order('id')),
+        fetchAllRows(() => this.supabase.from('disposals').select('*').order('id')),
+        fetchAllRows(() => this.supabase.from('asset_additions').select('*').order('id')),
       ]);
-      if (assetsRes.error) throw assetsRes.error;
-      if (disposalsRes.error) throw disposalsRes.error;
-      if (additionsRes.error) throw additionsRes.error;
-
-      const assets = assetsRes.data || [];
-      const disposals = disposalsRes.data || [];
-      const additions = additionsRes.data || [];
 
       const dispByAsset = {};
       for (const d of disposals) {
@@ -1844,11 +1855,58 @@ document.addEventListener('alpine:init', () => {
       return this.additions.reduce((s, a) => s + (a.addition_cost || 0), 0);
     },
 
+    // Column-header sorting for the Main Assets table.
+    // Clicking the same column toggles asc ↔ desc; a new column starts asc.
+    sortAssets(key) {
+      if (this.assetSort.key === key) {
+        this.assetSort.dir = this.assetSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.assetSort = { key, dir: 'asc' };
+      }
+      this.page = 1;
+    },
+    assetSortIcon(key) {
+      if (this.assetSort.key !== key) return '↕';
+      return this.assetSort.dir === 'asc' ? '▲' : '▼';
+    },
+
+    // Switching search mode clears the old query so a leftover term from one
+    // mode doesn't silently filter the next.
+    onSearchFieldChange() {
+      this.searchQuery = '';
+      this.page = 1;
+    },
+
     get filteredAssets() {
       const q = (this.searchQuery || '').toLowerCase().trim();
-      if (!q) return this.assets;
-      const words = q.split(/\s+/).filter(Boolean);
-      return this.assets.filter(a => words.every(w => a._search.includes(w)));
+      let list = this.assets;
+      if (q) {
+        if (this.searchField === 'category' || this.searchField === 'location') {
+          // Dropdown pick → exact match against the preset name
+          list = list.filter(a => (a[this.searchField] || '').toLowerCase() === q);
+        } else {
+          const words = q.split(/\s+/).filter(Boolean);
+          if (this.searchField === 'name') {
+            list = list.filter(a => {
+              const name = (a.name || '').toLowerCase();
+              return words.every(w => name.includes(w));
+            });
+          } else {
+            list = list.filter(a => words.every(w => a._search.includes(w)));
+          }
+        }
+      }
+      const { key, dir } = this.assetSort;
+      if (key) {
+        const mul = dir === 'asc' ? 1 : -1;
+        list = [...list].sort((a, b) => {
+          const va = a[key], vb = b[key];
+          if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul;
+          return String(va ?? '').localeCompare(String(vb ?? ''), undefined,
+            { sensitivity: 'base', numeric: true }) * mul;
+        });
+      }
+      return list;
     },
     get totalPages() { return Math.max(1, Math.ceil(this.filteredAssets.length / PAGE_SIZE)); },
     get pagedAssets() {

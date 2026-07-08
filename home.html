@@ -505,12 +505,47 @@
           </h3>
         </div>
 
-        <div class="mb-4">
-          <input
-            x-model="searchQuery"
-            type="text"
-            placeholder="Search by name, category, location, status, year, cost (e.g. 1000)…"
-            class="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+        <div class="mb-4 flex gap-2">
+          <select x-model="searchField" @change="onSearchFieldChange()"
+                  class="w-40 shrink-0 px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+            <option value="all">All Fields</option>
+            <option value="name">Description</option>
+            <option value="category">Category</option>
+            <option value="location">Location</option>
+          </select>
+
+          <!-- Free-text search (overall / description) -->
+          <template x-if="searchField === 'all' || searchField === 'name'">
+            <input
+              x-model="searchQuery"
+              type="text"
+              :placeholder="searchField === 'name'
+                ? 'Search by description…'
+                : 'Search by name, category, location, status, year, cost (e.g. 1000)…'"
+              class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-[#7F0019]" />
+          </template>
+
+          <!-- Category picker (presets from Maintenance tab) -->
+          <template x-if="searchField === 'category'">
+            <select x-model="searchQuery"
+                    class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— All Categories —</option>
+              <template x-for="c in cats" :key="c.id">
+                <option :value="c.name" x-text="c.name"></option>
+              </template>
+            </select>
+          </template>
+
+          <!-- Location picker (presets from Maintenance tab) -->
+          <template x-if="searchField === 'location'">
+            <select x-model="searchQuery"
+                    class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm bg-white focus:outline-none focus:border-[#7F0019]">
+              <option value="">— All Locations —</option>
+              <template x-for="l in locs" :key="l.id">
+                <option :value="l.name" x-text="l.name"></option>
+              </template>
+            </select>
+          </template>
         </div>
 
         <div x-show="loading" class="text-stone-400 text-sm py-8 text-center">Loading…</div>
@@ -524,11 +559,21 @@
           <table class="app-table">
             <thead>
               <tr>
-                <th>Description</th>
-                <th>Category</th>
-                <th>Location</th>
-                <th class="center">Status</th>
-                <th class="num">Purchase Cost</th>
+                <th class="sortable" @click="sortAssets('name')" title="Sort by description">
+                  Description <span class="sort-icon" x-text="assetSortIcon('name')"></span>
+                </th>
+                <th class="sortable" @click="sortAssets('category')" title="Sort by category">
+                  Category <span class="sort-icon" x-text="assetSortIcon('category')"></span>
+                </th>
+                <th class="sortable" @click="sortAssets('location')" title="Sort by location">
+                  Location <span class="sort-icon" x-text="assetSortIcon('location')"></span>
+                </th>
+                <th class="center sortable" @click="sortAssets('status')" title="Sort by status">
+                  Status <span class="sort-icon" x-text="assetSortIcon('status')"></span>
+                </th>
+                <th class="num sortable" @click="sortAssets('purchase_cost')" title="Sort by purchase cost">
+                  Purchase Cost <span class="sort-icon" x-text="assetSortIcon('purchase_cost')"></span>
+                </th>
                 <th class="center">Actions</th>
               </tr>
             </thead>
