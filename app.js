@@ -5,7 +5,7 @@
 // ===== Top-level constants =====
 const PAGE_SIZE = 10;
 const RESIDUAL_VALUE = 1.0;
-const COMPANY_NAME = 'MJM ESTATES SDN BHD (1255996-A)';
+const COMPANY_NAME = 'MJM (PALM OIL MILL) SDN BHD (969458-H)';
 const MONTHS = [
   [1, 'Jan'], [2, 'Feb'], [3, 'Mar'], [4, 'Apr'], [5, 'May'], [6, 'Jun'],
   [7, 'Jul'], [8, 'Aug'], [9, 'Sep'], [10, 'Oct'], [11, 'Nov'], [12, 'Dec'],
@@ -61,6 +61,11 @@ function dispMonth(d) {
 function dispYear(d) {
   if (d.disposal_year) {
     const y = parseInt(d.disposal_year, 10);
+    if (!isNaN(y)) return y;
+  }
+  // Bulk-inserted rows may carry a date without the year column — derive it.
+  if (d.disposal_date) {
+    const y = parseInt(String(d.disposal_date).substring(0, 4), 10);
     if (!isNaN(y)) return y;
   }
   return null;
@@ -501,6 +506,14 @@ document.addEventListener('alpine:init', () => {
     },
     disposalSaving: false,
 
+    // ===== Disposal history (view + edit date/proceed/remarks) =====
+    disposals: [],
+    loadingDisposals: false,
+    disposalsSearchQuery: '',
+    disposalsPage: 1,
+    editingDisposal: null,
+    editingDisposalSaving: false,
+
     // ===== Maintenance state =====
     newCatName: '',
     newLocName: '',
@@ -585,6 +598,7 @@ document.addEventListener('alpine:init', () => {
         this.loadDropdowns(),
         this.loadActiveAssets(),
         this.loadAvailableAssets(),
+        this.loadDisposals(),
       ]);
     },
 
@@ -974,6 +988,7 @@ document.addEventListener('alpine:init', () => {
           this.loadActiveAssets(),
           this.loadAvailableAssets(),
           this.loadAdditions(),
+          this.loadDisposals(),
         ]);
       } catch (err) {
         console.error('saveDisposal:', err);
@@ -990,6 +1005,101 @@ document.addEventListener('alpine:init', () => {
         date: todayISO(),
         remarks: '',
       };
+    },
+
+    // ===== Disposal history =====
+    async loadDisposals() {
+      this.loadingDisposals = true;
+      try {
+        const data = await fetchAllRows(() => this.supabase
+          .from('disposals')
+          .select('*, categories(name), locations(name)')
+          .order('id', { ascending: false }));
+        this.disposals = data.map(r => {
+          const cost = Number(r.total_disposal_cost) || 0;
+          const item = {
+            id: r.id,
+            asset_id: r.asset_id,
+            name: r.name || '',
+            category: r.categories?.name || 'N/A',
+            location: r.locations?.name || 'No location',
+            quantity_disposed: r.quantity_disposed || 0,
+            total_disposal_cost: cost,
+            totalCostFmt: formatMoney(cost),
+            sales_proceed: Number(r.sales_proceed) || 0,
+            disposal_date: r.disposal_date || '',
+            disposal_year: r.disposal_year,
+            remarks: r.remarks || '',
+          };
+          item._search = [
+            item.name, item.category, item.location,
+            item.totalCostFmt, item.total_disposal_cost.toFixed(2),
+            item.disposal_date, item.disposal_year || '', item.remarks,
+          ].filter(p => p !== '' && p !== null && p !== undefined).join(' ').toLowerCase();
+          return item;
+        });
+      } catch (err) {
+        console.error('loadDisposals:', err);
+        this.notify(`Could not load disposal history: ${err.message || err}`, 'negative');
+      } finally {
+        this.loadingDisposals = false;
+      }
+    },
+
+    // Disposals missing both date and year are invisible to the report's
+    // period math — surface them so the user can fix the records.
+    get undatedDisposalsCount() {
+      return this.disposals.filter(d => !d.disposal_date && !d.disposal_year).length;
+    },
+
+    openEditDisposal(row) {
+      this.editingDisposal = {
+        id: row.id,
+        name: row.name,
+        quantity_disposed: row.quantity_disposed,
+        totalCostFmt: row.totalCostFmt,
+        date: row.disposal_date || '',
+        salesProceed: row.sales_proceed,
+        remarks: row.remarks,
+      };
+    },
+    // Qty/cost stay read-only here — they were already netted off the parent
+    // asset when the disposal was recorded, so editing them would desync it.
+    async saveEditDisposal() {
+      const d = this.editingDisposal;
+      if (!d) return;
+      if (!d.date) { this.notify('Please set a disposal date.', 'warning'); return; }
+      this.editingDisposalSaving = true;
+      try {
+        const { error } = await this.supabase.from('disposals').update({
+          disposal_date: d.date,
+          disposal_year: yearFromISO(d.date),
+          sales_proceed: Number(d.salesProceed) || 0,
+          remarks: d.remarks || null,
+        }).eq('id', d.id);
+        if (error) throw error;
+        this.notify('Disposal record updated', 'positive');
+        this.editingDisposal = null;
+        await this.loadDisposals();
+      } catch (err) {
+        console.error('saveEditDisposal:', err);
+        this.notify(`Database error: ${err.message || err}`, 'negative');
+      } finally {
+        this.editingDisposalSaving = false;
+      }
+    },
+
+    get filteredDisposals() {
+      const q = (this.disposalsSearchQuery || '').toLowerCase().trim();
+      if (!q) return this.disposals;
+      const words = q.split(/\s+/).filter(Boolean);
+      return this.disposals.filter(d => words.every(w => d._search.includes(w)));
+    },
+    get disposalsTotalPages() { return Math.max(1, Math.ceil(this.filteredDisposals.length / PAGE_SIZE)); },
+    get pagedDisposals() {
+      if (this.disposalsPage > this.disposalsTotalPages) this.disposalsPage = this.disposalsTotalPages;
+      const start = (this.disposalsPage - 1) * PAGE_SIZE;
+      return this.filteredDisposals.slice(start, start + PAGE_SIZE);
     },
 
     // ===== Maintenance: Categories =====
@@ -1344,21 +1454,44 @@ document.addEventListener('alpine:init', () => {
         const monthlyChargeFull = (originalCost * rate) / 12.0;
         const monthsDepBF = py >= year ? 0 : (year - py) * 12;
         const monthsDepPeriodEnd = py <= year ? (year - py) * 12 + month : 0;
-        // Cap accumulated dep at (cost − residual) so NBV bottoms at
-        // RESIDUAL_VALUE for in-service assets; disposal column handles the
-        // fully-disposed case independently (cost_cf = 0 → NBV = 0).
-        const accDepCap = Math.max(originalCost - RESIDUAL_VALUE, 0);
-        const accDepFullBF = Math.min(monthlyChargeFull * monthsDepBF, accDepCap);
-        const accDepFullAtPeriod = Math.min(monthlyChargeFull * monthsDepPeriodEnd, accDepCap);
 
-        const pastDispAccDep = pastDisposals.reduce((s, d) => s + disposalAccDepAt(d, originalCost, rate, py), 0);
-        const periodDispAccDep = periodDisposals.reduce((s, d) => s + disposalAccDepAt(d, originalCost, rate, py), 0);
-
-        const accDepBf = Math.max(accDepFullBF - pastDispAccDep, 0);
-        const accDepDisposal = Math.min(periodDispAccDep, accDepFullAtPeriod);
-        let currentCharge = Math.max(
-          accDepFullAtPeriod - pastDispAccDep - periodDispAccDep - accDepBf, 0
+        // Partial disposals: each disposed tranche stops accruing at its own
+        // disposal month; the still-held share keeps depreciating. Undated
+        // disposals never enter past/period buckets, so they are treated as
+        // still held (their cost stays in B/F and C/F above, consistently).
+        //
+        // B/F acc dep covers only the share still on the books at 1 Jan —
+        // past disposals already carried their acc dep out with them.
+        // Capped at (cost B/F − residual) so NBV bottoms at RESIDUAL_VALUE.
+        const heldShareBF = originalCost > 0 ? (originalCost - pastDisposedCost) / originalCost : 0;
+        const accDepBf = Math.min(
+          monthlyChargeFull * heldShareBF * monthsDepBF,
+          Math.max(costBf - RESIDUAL_VALUE, 0)
         );
+
+        // Acc dep carried out with this period's disposals: accrued from
+        // purchase to each disposal month, never more than the disposed cost.
+        const accDepDisposal = periodDisposals.reduce(
+          (s, d) => s + disposalAccDepAt(d, originalCost, rate, py), 0);
+
+        // Charge for the period: in-period tranches accrue Jan → their
+        // disposal month (each capped at its own cost, so already-fully-
+        // depreciated tranches add nothing); the kept share accrues for the
+        // whole period.
+        let currentCharge = 0;
+        for (const d of periodDisposals) {
+          const dCost = Number(d.total_disposal_cost || 0);
+          if (dCost <= 0) continue;
+          const share = dCost / originalCost;
+          const monthsAtDisposal = Math.max(0, (dispYear(d) - py) * 12 + dispMonth(d));
+          const atDisposal = Math.min(monthlyChargeFull * share * monthsAtDisposal, dCost);
+          const atBf = Math.min(monthlyChargeFull * share * monthsDepBF, dCost);
+          currentCharge += Math.max(atDisposal - atBf, 0);
+        }
+        const heldShareEnd = originalCost > 0
+          ? (originalCost - pastDisposedCost - periodDisposedCost) / originalCost : 0;
+        currentCharge += Math.max(
+          monthlyChargeFull * heldShareEnd * (monthsDepPeriodEnd - monthsDepBF), 0);
         const residual = costCf > 0 ? RESIDUAL_VALUE : 0;
         currentCharge = Math.min(currentCharge, Math.max(costCf - (accDepBf - accDepDisposal) - residual, 0));
         const accDepCf = accDepBf - accDepDisposal + currentCharge;
@@ -1824,6 +1957,7 @@ document.addEventListener('alpine:init', () => {
         this.loadDropdowns(),
         this.loadActiveAssets(),
         this.loadAvailableAssets(),
+        this.loadDisposals(),
       ]);
 
       this.importing = false;
