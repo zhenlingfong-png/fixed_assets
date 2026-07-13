@@ -565,8 +565,8 @@
                 <th class="sortable" @click="sortAssets('category')" title="Sort by category">
                   Category <span class="sort-icon" x-text="assetSortIcon('category')"></span>
                 </th>
-                <th class="sortable" @click="sortAssets('location')" title="Sort by location">
-                  Location <span class="sort-icon" x-text="assetSortIcon('location')"></span>
+                <th class="center sortable" @click="sortAssets('purchase_date')" title="Sort by purchase date">
+                  Purchase Date <span class="sort-icon" x-text="assetSortIcon('purchase_date')"></span>
                 </th>
                 <th class="center sortable" @click="sortAssets('status')" title="Sort by status">
                   Status <span class="sort-icon" x-text="assetSortIcon('status')"></span>
@@ -582,7 +582,7 @@
                 <tr>
                   <td x-text="a.name"></td>
                   <td x-text="a.category"></td>
-                  <td x-text="a.location"></td>
+                  <td class="center" x-text="a.purchase_date || '—'"></td>
                   <td class="center">
                     <span :class="a.status === 'Active' ? 'status-active' : 'status-disposed'" x-text="a.status"></span>
                     <template x-if="a.status === 'Active' && a.qty_disposed > 0">
